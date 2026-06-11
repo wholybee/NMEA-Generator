@@ -1,0 +1,16 @@
+# Build output
+build/
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.aps
+*.ipdb
+*.iobj
+*.pdb
+*.ilk
+*.exe
+*.obj

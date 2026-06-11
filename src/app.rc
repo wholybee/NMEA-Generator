@@ -1,0 +1,95 @@
+// app.rc - Main dialog layout for the NMEA Generator.
+#include <windows.h>
+#include "resource.h"
+
+IDD_MAIN DIALOGEX 0, 0, 462, 332
+STYLE DS_SETFONT | DS_CENTER | WS_MINIMIZEBOX | WS_CAPTION | WS_SYSMENU
+CAPTION "NMEA 0183 / AIS Test Data Generator"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    // ---- Networking ----
+    GROUPBOX        "Networking", -1, 6, 4, 210, 50
+    LTEXT           "TCP Port:", -1, 14, 20, 40, 9
+    EDITTEXT        IDC_TCP_PORT, 56, 18, 44, 12, ES_AUTOHSCROLL | ES_NUMBER
+    LTEXT           "UDP Port:", -1, 14, 36, 40, 9
+    EDITTEXT        IDC_UDP_PORT, 56, 34, 44, 12, ES_AUTOHSCROLL | ES_NUMBER
+    DEFPUSHBUTTON   "Start Simulation", IDC_START, 112, 18, 96, 28
+
+    LTEXT           "Stopped.", IDC_STATUS, 6, 58, 210, 10
+
+    // ---- Ownship ----
+    GROUPBOX        "Ownship", -1, 6, 72, 210, 114
+    LTEXT           "Centre Latitude:", -1, 14, 88, 70, 9
+    EDITTEXT        IDC_OWN_LAT, 96, 86, 110, 12, ES_AUTOHSCROLL
+    LTEXT           "Centre Longitude:", -1, 14, 104, 70, 9
+    EDITTEXT        IDC_OWN_LON, 96, 102, 110, 12, ES_AUTOHSCROLL
+    LTEXT           "Area Width (NM, E-W):", -1, 14, 120, 80, 9
+    EDITTEXT        IDC_OWN_WIDTH, 96, 118, 50, 12, ES_AUTOHSCROLL
+    LTEXT           "Area Height (NM, N-S):", -1, 14, 136, 80, 9
+    EDITTEXT        IDC_OWN_HEIGHT, 96, 134, 50, 12, ES_AUTOHSCROLL
+    LTEXT           "Path Shape:", -1, 14, 152, 70, 9
+    COMBOBOX        IDC_OWN_SHAPE, 96, 150, 80, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Speed (knots):", -1, 14, 168, 70, 9
+    EDITTEXT        IDC_OWN_SPEED, 96, 166, 50, 12, ES_AUTOHSCROLL
+
+    // ---- AIS Targets ----
+    GROUPBOX        "AIS Targets", -1, 224, 4, 232, 182
+
+    // Target 0
+    AUTOCHECKBOX    "Target 1", 1100, 232, 18, 60, 10
+    LTEXT           "Class:", -1, 296, 18, 24, 9
+    COMBOBOX        1101, 322, 16, 40, 60, CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "Shape:", -1, 366, 18, 26, 9
+    COMBOBOX        1102, 394, 16, 56, 80, CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "X off:", -1, 232, 34, 22, 9
+    EDITTEXT        1103, 256, 32, 34, 12, ES_AUTOHSCROLL
+    LTEXT           "Y off:", -1, 296, 34, 22, 9
+    EDITTEXT        1104, 320, 32, 34, 12, ES_AUTOHSCROLL
+    LTEXT           "Spd:", -1, 360, 34, 18, 9
+    EDITTEXT        1105, 382, 32, 34, 12, ES_AUTOHSCROLL
+
+    // Target 1
+    AUTOCHECKBOX    "Target 2", 1110, 232, 58, 60, 10
+    LTEXT           "Class:", -1, 296, 58, 24, 9
+    COMBOBOX        1111, 322, 56, 40, 60, CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "Shape:", -1, 366, 58, 26, 9
+    COMBOBOX        1112, 394, 56, 56, 80, CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "X off:", -1, 232, 74, 22, 9
+    EDITTEXT        1113, 256, 72, 34, 12, ES_AUTOHSCROLL
+    LTEXT           "Y off:", -1, 296, 74, 22, 9
+    EDITTEXT        1114, 320, 72, 34, 12, ES_AUTOHSCROLL
+    LTEXT           "Spd:", -1, 360, 74, 18, 9
+    EDITTEXT        1115, 382, 72, 34, 12, ES_AUTOHSCROLL
+
+    // Target 2
+    AUTOCHECKBOX    "Target 3", 1120, 232, 98, 60, 10
+    LTEXT           "Class:", -1, 296, 98, 24, 9
+    COMBOBOX        1121, 322, 96, 40, 60, CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "Shape:", -1, 366, 98, 26, 9
+    COMBOBOX        1122, 394, 96, 56, 80, CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "X off:", -1, 232, 114, 22, 9
+    EDITTEXT        1123, 256, 112, 34, 12, ES_AUTOHSCROLL
+    LTEXT           "Y off:", -1, 296, 114, 22, 9
+    EDITTEXT        1124, 320, 112, 34, 12, ES_AUTOHSCROLL
+    LTEXT           "Spd:", -1, 360, 114, 18, 9
+    EDITTEXT        1125, 382, 112, 34, 12, ES_AUTOHSCROLL
+
+    // Target 3
+    AUTOCHECKBOX    "Target 4", 1130, 232, 138, 60, 10
+    LTEXT           "Class:", -1, 296, 138, 24, 9
+    COMBOBOX        1131, 322, 136, 40, 60, CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "Shape:", -1, 366, 138, 26, 9
+    COMBOBOX        1132, 394, 136, 56, 80, CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "X off:", -1, 232, 154, 22, 9
+    EDITTEXT        1133, 256, 152, 34, 12, ES_AUTOHSCROLL
+    LTEXT           "Y off:", -1, 296, 154, 22, 9
+    EDITTEXT        1134, 320, 152, 34, 12, ES_AUTOHSCROLL
+    LTEXT           "Spd:", -1, 360, 154, 18, 9
+    EDITTEXT        1135, 382, 152, 34, 12, ES_AUTOHSCROLL
+
+    // ---- Log ----
+    LTEXT           "Output Log:", -1, 6, 194, 60, 9
+    PUSHBUTTON      "Clear", IDC_CLEAR_LOG, 426, 192, 30, 12
+    EDITTEXT        IDC_LOG, 6, 206, 450, 120,
+                    ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_BORDER
+END
