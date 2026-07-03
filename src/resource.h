@@ -9,6 +9,8 @@
 #define IDC_UDP_PORT        1002
 #define IDC_START           1003
 #define IDC_STATUS          1004
+#define IDC_PROTOCOL        1005
+#define IDC_MOB             1006
 
 // Ownship
 #define IDC_OWN_LAT         1010

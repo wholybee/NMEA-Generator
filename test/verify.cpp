@@ -3,6 +3,7 @@
 //   cl /EHsc /std:c++17 /I..\src verify.cpp ..\src\Ais.cpp ..\src\Nmea.cpp
 #include "../src/Ais.h"
 #include "../src/Nmea.h"
+#include "../src/ApInput.h"
 
 #include <cstdio>
 #include <string>
@@ -83,6 +84,7 @@ int main() {
 
     // --- Type 18 (Class B) ---
     d.classA = false;
+    d.kind = AisTargetKind::ClassB;
     std::string s18 = EncodePositionReport(d, 'B');
     printf("Type18: %s", s18.c_str());
     CHECK(ChecksumOk(s18), "type18 checksum");
@@ -90,6 +92,36 @@ int main() {
         std::string bits = Dearmor(PayloadOf(s18));
         CHECK(GetU(bits, 0, 6) == 18, "type18 message id == 18");
         CHECK(GetU(bits, 8, 30) == 235123456u, "type18 mmsi round-trip");
+    }
+
+    // --- Type 9 (SAR aircraft) ---
+    d.kind = AisTargetKind::SarFixedWing;
+    d.classA = false;
+    d.mmsi = 111366123;
+    d.altitudeMeters = 1500;
+    d.sog = 88.8;
+    d.cog = 270.5;
+    std::string s9 = EncodePositionReport(d, 'A');
+    printf("Type9: %s", s9.c_str());
+    CHECK(ChecksumOk(s9), "type9 checksum");
+    {
+        std::string bits = Dearmor(PayloadOf(s9));
+        CHECK(GetU(bits, 0, 6) == 9, "type9 message id == 9");
+        CHECK(GetU(bits, 8, 30) >= 111366100u && GetU(bits, 8, 30) <= 111366499u,
+              "type9 fixed-wing MMSI in SAR range");
+        CHECK(GetU(bits, 38, 12) == 1500, "type9 altitude encoded");
+        CHECK(GetU(bits, 50, 10) == 888, "type9 SOG encoded");
+        CHECK(GetU(bits, 116, 12) == 2705, "type9 COG encoded");
+    }
+
+    // --- Type 14 MOB safety broadcast ---
+    std::string s14 = EncodeSafetyBroadcast(972366001u, "MOB ACTIVE", 'A');
+    printf("Type14: %s", s14.c_str());
+    CHECK(ChecksumOk(s14), "type14 checksum");
+    {
+        std::string bits = Dearmor(PayloadOf(s14));
+        CHECK(GetU(bits, 0, 6) == 14, "type14 message id == 14");
+        CHECK(GetU(bits, 8, 30) == 972366001u, "type14 MOB MMSI encoded");
     }
 
     // --- Type 5 static (multi-part) ---
@@ -136,6 +168,82 @@ int main() {
     auto own = BuildOwnshipSentences(os, utc);
     printf("Ownship sentences: %zu\n", own.size());
     for (auto& s : own) { printf("  %s", s.c_str()); CHECK(ChecksumOk(s), "ownship checksum"); }
+
+    // --- Incoming sentence parsing helpers ---
+    {
+        std::string apb = Frame('$', "GPAPB,A,A,0.10,R,N,V,V,45.0,T,DEST,48.5,T,50.2,T");
+        std::string xte = Frame('$', "GPXTE,A,A,0.25,L,N");
+        CHECK(SentenceFormatter(apb) == "APB", "formatter APB");
+        CHECK(SentenceFormatter(xte) == "XTE", "formatter XTE");
+        CHECK(SentenceFormatter("$GPRMB,A,1.2,L") == "RMB", "formatter RMB");
+        CHECK(VerifyChecksum(apb), "APB checksum verifies");
+        CHECK(VerifyChecksum(xte), "XTE checksum verifies");
+        CHECK(!VerifyChecksum("$GPAPB,A,A,0.10,R,N*00"), "bad checksum rejected");
+        auto f = SplitFields(apb);
+        CHECK(f.size() == 15 && f[0] == "$GPAPB", "APB splits into 15 fields");
+        CHECK(f[13] == "50.2", "APB heading-to-steer field");
+        double v;
+        CHECK(ParseLatLon("5030.00", "N", v) && std::fabs(v - 50.5) < 1e-6, "lat 5030.00 N -> 50.5");
+        CHECK(ParseLatLon("00030.00", "W", v) && std::fabs(v + 0.5) < 1e-6, "lon 00030.00 W -> -0.5");
+    }
+
+    // --- Autopilot sentence validation & decoding ---
+    {
+        // Well-formed RMB decodes dest / bearing / range / XTE.
+        std::string rmb = Frame('$', "GPRMB,A,0.10,L,ORIG,DEST,5030.00,N,00030.00,W,12.5,045.0,8.0,V");
+        ApInput in;
+        CHECK(ParseAutopilotInput(rmb, in), "RMB recognised");
+        CHECK(in.ok(), "valid RMB passes validation");
+        CHECK(in.hasXte && std::fabs(in.xteNm - 0.10) < 1e-6 && in.xteDir == 'L', "RMB XTE decoded");
+        CHECK(in.hasDest && std::fabs(in.destLat - 50.5) < 1e-4
+                         && std::fabs(in.destLon + 0.5) < 1e-4, "RMB destination decoded");
+        CHECK(in.hasBearingToDest && std::fabs(in.bearingToDest - 45.0) < 1e-6, "RMB bearing decoded");
+        CHECK(in.hasRange && std::fabs(in.rangeNm - 12.5) < 1e-6, "RMB range decoded");
+        printf("     decoded: %s\n", in.DecodedSummary().c_str());
+
+        // Well-formed APB decodes heading-to-steer.
+        std::string apb = Frame('$', "GPAPB,A,A,0.10,R,N,V,V,45.0,T,DEST,48.5,T,50.2,T");
+        ApInput ina;
+        CHECK(ParseAutopilotInput(apb, ina) && ina.ok(), "valid APB passes validation");
+        CHECK(ina.hasHeadingToSteer && std::fabs(ina.headingToSteer - 50.2) < 1e-6, "APB heading-to-steer decoded");
+        CHECK(ina.hasBearingToDest && std::fabs(ina.bearingToDest - 48.5) < 1e-6, "APB bearing-to-dest decoded");
+
+        // Bad checksum is reported.
+        ApInput bad;
+        ParseAutopilotInput("$GPXTE,A,A,0.25,L,N*00", bad);
+        CHECK(!bad.ok() && bad.ErrorText().find("checksum") != std::string::npos,
+              "bad checksum reported");
+
+        // Wrong steer direction is reported.
+        ApInput badDir;
+        ParseAutopilotInput(Frame('$', "GPXTE,A,A,0.25,Q,N"), badDir);
+        CHECK(!badDir.ok() && badDir.ErrorText().find("direction to steer") != std::string::npos,
+              "invalid steer direction reported");
+
+        // Missing field (truncated RMB) is reported as incomplete.
+        ApInput trunc;
+        ParseAutopilotInput(Frame('$', "GPRMB,A,0.10,L,ORIG,DEST,5030.00,N"), trunc);
+        CHECK(!trunc.ok() && trunc.ErrorText().find("incomplete") != std::string::npos,
+              "incomplete RMB reported");
+
+        // Non-numeric bearing is reported.
+        ApInput nan;
+        ParseAutopilotInput(Frame('$', "GPRMB,A,0.10,L,ORIG,DEST,5030.00,N,00030.00,W,12.5,XX,8.0,V"), nan);
+        CHECK(!nan.ok() && nan.ErrorText().find("bearing to destination") != std::string::npos,
+              "non-numeric bearing reported");
+
+        // Out-of-range latitude (minutes >= 60) is reported.
+        ApInput badlat;
+        ParseAutopilotInput(Frame('$', "GPRMB,A,0.10,L,ORIG,DEST,5099.00,N,00030.00,W,12.5,045.0,8.0,V"), badlat);
+        CHECK(!badlat.ok() && badlat.ErrorText().find("latitude") != std::string::npos,
+              "invalid latitude reported");
+
+        // Status V (data not valid) is reported and not acted upon.
+        ApInput vstat;
+        ParseAutopilotInput(Frame('$', "GPRMB,V,0.10,L,ORIG,DEST,5030.00,N,00030.00,W,12.5,045.0,8.0,V"), vstat);
+        CHECK(!vstat.ok() && vstat.ErrorText().find("not valid") != std::string::npos,
+              "status V reported as invalid");
+    }
 
     printf("\n%s (%d failures)\n", g_fail ? "FAILURES PRESENT" : "ALL PASSED", g_fail);
     return g_fail ? 1 : 0;

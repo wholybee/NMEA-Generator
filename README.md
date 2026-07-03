@@ -1,118 +1,252 @@
 # NMEA Generator
 
-A Windows desktop application that generates **NMEA 0183** test data — including
-**AIS** (AIVDM) messages — and serves it simultaneously over a **TCP server** and
-**UDP broadcast**. Useful for exercising chart plotters, ECDIS, AIS displays, and
-other marine navigation software without live sensors.
-
-![dialog](docs/screenshot.png)
+A Windows desktop application that generates **NMEA 0183** or **NMEA 2000** test
+data and serves it simultaneously over a **TCP server** and **UDP broadcast**.
+The protocol is selected with a UI toggle; only one mode is active at a time.
 
 ## Features
 
-### Ownship (simulated own vessel)
+### Protocol Modes
+
+The **Protocol** selector in the Networking group chooses the active output and
+input format.
+
+| Mode | Output |
+|------|--------|
+| `NMEA 0183` | Standard text sentences (`GGA`, `RMC`, `AIVDM`, etc.) |
+| `NMEA 2000` | Binary PGN payloads transported as Actisense N2K ASCII lines |
+
+NMEA 2000 mode emulates an Actisense device using the documented **N2K ASCII**
+format:
+
+```text
+Ahhmmss.ddd <SS><DD><P> <PPPPP> <payload-hex><CR><LF>
+```
+
+Fields are:
+
+| Field | Meaning |
+|-------|---------|
+| `A` | Actisense N2K ASCII received-message identifier |
+| `hhmmss.ddd` | transmission/reception time; milliseconds are included |
+| `SS` | source address, hex |
+| `DD` | destination address, hex; `FF` is global |
+| `P` | priority, hex `0..7` |
+| `PPPPP` | PGN, hex |
+| `payload-hex` | reassembled PGN payload bytes, two hex digits per byte |
+
+There is no NMEA `$...*hh` checksum in this format. The payload is the
+reassembled NMEA 2000 PGN data, so consumers do not need to perform Fast-Packet
+or ISO Transport Protocol reassembly.
+
+### Ownship
+
 Position is driven around a configurable path (circle / square / figure-eight)
 centred on a latitude/longitude you choose, within a simulation box sized in
-nautical miles. The following sentences are emitted at ~1 Hz:
+nautical miles. COG/SOG are derived from motion; apparent wind is computed from
+a synthesised true wind. Ownship heading is rate-limited to **6 deg/s**, so turns
+sweep round over time rather than snapping instantly.
+
+In NMEA 0183 mode, ownship emits these sentences at ~1 Hz:
 
 | Sentence | Content |
 |----------|---------|
-| `GGA` | GPS fix (position, time) |
+| `GGA` | GPS fix |
 | `RMC` | Position, COG, SOG, date |
-| `VTG` | Course & speed over ground |
+| `VTG` | Course and speed over ground |
 | `GLL` | Geographic position |
-| `VHW` | Speed through water & heading |
-| `MWV` (R) | Apparent wind angle & speed |
-| `MWV` (T) | True wind (relative to vessel) |
-| `MWD` | True wind direction & speed |
+| `VHW` | Heading and speed through water |
+| `MWV` (R) | Apparent wind |
+| `MWV` (T) | True wind |
+| `MWD` | True wind direction and speed |
 
-COG/SOG are derived from the actual motion along the path; apparent wind is
-computed by subtracting vessel motion from a synthesised true wind.
+In NMEA 2000 mode, ownship emits equivalent PGNs:
 
-### AIS targets (4)
-Each target travels its own path with an optional X/Y offset from the simulation
-centre (paths may extend beyond the box when offset). Targets can be Class A or
-Class B and toggled on/off individually.
+| PGN | Content |
+|-----|---------|
+| `126992` | System time |
+| `127250` | Vessel heading |
+| `128259` | Speed, water-referenced |
+| `129025` | Position rapid update |
+| `129026` | COG/SOG rapid update |
+| `129029` | GNSS position data |
+| `130306` | Wind data (apparent and true) |
 
-* **Dynamic data — every 6 s:** position, SOG, COG, heading, ROT, UTC second
-  * Class A → AIS message **type 1**
-  * Class B → AIS message **type 18**
-* **Static data — every 60 s:** MMSI, IMO, name, call sign, ship type, dimensions
-  * Class A → AIS message **type 5** (two-part)
-  * Class B → AIS message **type 24** (Part A + Part B)
+### Autopilot Input
 
-MMSI, IMO, name, call sign, ship type and dimensions are pseudo-randomly but
-deterministically generated per target. COG, heading and ROT are calculated from
-motion.
+The generator listens on the same TCP connections and UDP port for inbound
+autopilot data. In NMEA 0183 mode, it accepts **APB**, **RMB**, and **XTE**. In
+NMEA 2000 mode, it accepts equivalent Actisense N2K ASCII PGNs:
+
+| PGN | Autopilot content |
+|-----|-------------------|
+| `129283` | Cross Track Error |
+| `127237` | Heading/Track Control |
+| `129284` | Navigation Data (destination, bearing, range) |
+
+Valid input switches the ownship out of its predefined pattern and emulates an
+autopilot, steering toward the destination waypoint or commanded heading. If no
+autopilot data arrives for 15 seconds, the ownship resumes the predefined path.
+
+Every inbound APB/RMB/XTE sentence and supported NMEA 2000 autopilot PGN is
+checked before it is acted on. Errors are reported in the log and malformed data
+is ignored.
+
+Validation includes:
+
+| Format | Checks |
+|--------|--------|
+| NMEA 0183 | leading `$`, checksum, field count, status flags, numeric fields, units/reference fields, steer direction, destination lat/lon range |
+| NMEA 2000 Actisense ASCII | message type `A`, timestamp, `<SS><DD><P>` header, hex PGN, hex payload, complete payload length, decoded range checks |
+
+Decoded values shown in the log include Cross Track Error, Heading to Steer,
+Destination latitude/longitude, Bearing to destination, and Range to destination
+when the input carries them.
+
+Example decoded lines:
+
+```text
+RMB OK   Cross-track 0.10 NM (steer L) | Dest 50deg30.00'N 000deg30.00'W | Bearing-to-dest 045.0degT | Range-to-dest 12.50 NM
+N2K 129284 OK   Dest 50deg30.00'N 000deg30.00'W | Bearing-to-dest 045.0degT | Range-to-dest 12.50 NM
+```
+
+### Log Colours
+
+| Colour | Meaning |
+|--------|---------|
+| black | generated outbound data |
+| blue | raw incoming data |
+| green | valid decoded autopilot data |
+| red | malformed autopilot data and the reason |
+| magenta | autopilot engaged/lost status notices |
+
+Echoes of the generator's own output received back via UDP broadcast are ignored.
+
+### AIS Targets
+
+Each of the four targets travels its own path with an optional X/Y offset from
+the simulation centre. Targets can be Class A, Class B, SAR fixed-wing aircraft,
+or SAR helicopter and toggled on/off individually.
+
+Dynamic data is emitted every 6 seconds:
+
+| Mode | Class | Output |
+|------|-------|--------|
+| NMEA 0183 | A | AIS type 1 |
+| NMEA 0183 | B | AIS type 18 |
+| NMEA 0183 | SAR fixed-wing / helicopter | AIS type 9 |
+| NMEA 2000 | A | PGN 129038 |
+| NMEA 2000 | B | PGN 129039 |
+| NMEA 2000 | SAR fixed-wing / helicopter | PGN 129798 |
+
+Static data is emitted every 60 seconds:
+
+| Mode | Class | Output |
+|------|-------|--------|
+| NMEA 0183 | A | AIS type 5 |
+| NMEA 0183 | B | AIS type 24 |
+| NMEA 2000 | A | PGN 129794 |
+| NMEA 2000 | B | PGNs 129809 and 129810 |
+
+MMSI, IMO, name, call sign, ship type, and dimensions are pseudo-randomly but
+deterministically generated per target.
+
+SAR aircraft MMSIs use MID `366` by default. Fixed-wing targets use
+`111366100..111366499`; helicopters use `111366500..111366999`.
+
+### MOB Broadcast
+
+The **Send MOB** button starts a 2-minute AIS MOB burst at the current ownship
+position. Every 6 seconds the app sends:
+
+| Mode | Output |
+|------|--------|
+| NMEA 0183 | AIS message 1 position report and AIS message 14 safety broadcast (`MOB ACTIVE`) |
+| NMEA 2000 | PGN 129038 position report and PGN 129802 safety broadcast |
+
+The MOB source MMSI is `972366001`.
 
 ## Building
 
 Requires Windows 10/11 and Visual Studio with the C++ desktop workload.
 
-### Visual Studio (2026 or 2022)
-Open `NMEA-Generator.sln` and build (x64, Debug or Release).
+Open `NMEA-Generator.sln` and build x64 Debug or Release.
 
 The platform toolset is selected automatically:
-* **Visual Studio 2026** → `v145`
-* **Visual Studio 2022** → `v143`
 
-Override with `/p:PlatformToolset=...` if needed (e.g. `ClangCL`).
+| Visual Studio | Toolset |
+|---------------|---------|
+| 2026 | `v145` |
+| 2022 | `v143` |
 
-### Command line
+Command line:
+
 ```powershell
 & "<VS>\MSBuild\Current\Bin\MSBuild.exe" NMEA-Generator.sln /p:Configuration=Release /p:Platform=x64
 ```
+
 The executable is written to `build\x64\Release\NMEA-Generator.exe`.
 
-There are no external dependencies — the app uses only the Win32 API and Winsock
-(`Ws2_32.lib`). Qt is **not** required.
+There are no external dependencies. The app uses only the Win32 API and Winsock
+(`Ws2_32.lib`). Qt is not required.
 
-## Using it
+## Using It
 
-1. Set the **TCP port** to listen on and the **UDP port** to broadcast on
-   (default `10110`, the common OpenCPN NMEA port).
-2. Configure the ownship centre, area size, path shape and speed.
-3. Enable/configure the AIS targets.
-4. Click **Start Simulation**. Generated sentences appear in the log and are
-   streamed to every connected TCP client and broadcast over UDP.
+1. Set the TCP port to listen on and the UDP port to broadcast on.
+2. Choose **NMEA 0183** or **NMEA 2000** in the Protocol selector.
+3. Configure the ownship centre, area size, path shape, and speed.
+4. Enable/configure AIS targets.
+5. Click **Start Simulation**.
+6. Use **Send MOB** while running to start a 2-minute MOB broadcast.
 
-To receive the data, point your software at the machine's IP on the TCP port, or
-listen for UDP broadcasts on the UDP port. For a quick check on the same machine:
+Generated lines appear in the log, stream to every connected TCP client, and are
+broadcast over UDP.
+
+Settings are saved automatically to `%APPDATA%\NMEA-Generator\settings.ini` when
+the simulation starts/stops or the app closes, and are restored on next launch.
+
+Quick local TCP check:
 
 ```powershell
-# TCP
 $c = New-Object System.Net.Sockets.TcpClient('127.0.0.1', 10110)
 $r = New-Object System.IO.StreamReader($c.GetStream())
 while ($true) { $r.ReadLine() }
 ```
 
-## Project layout
+## Project Layout
 
-```
+```text
 NMEA-Generator.sln
 NMEA-Generator.vcxproj
 src/
-  Geo.h            Path geometry & lat/lon conversion
-  Nmea.h/.cpp      NMEA 0183 sentence building + checksum
-  Ais.h/.cpp       AIS 6-bit payload encoding (types 1/5/18/24)
-  Network.h/.cpp   TCP server + UDP broadcast (Winsock)
-  Simulation.h/.cpp Motion model + emit cadence (background thread)
-  main.cpp         Win32 dialog UI
-  app.rc, resource.h  Dialog resource
+  Geo.h              Path geometry and lat/lon conversion
+  Nmea.h/.cpp        NMEA 0183 sentence building, checksum, parse helpers
+  N2k.h/.cpp         NMEA 2000 PGN payloads via Actisense N2K ASCII
+  Ais.h/.cpp         AIS 6-bit payload encoding (types 1/5/18/24)
+  ApInput.h/.cpp     APB/RMB/XTE validation and decoding
+  Network.h/.cpp     TCP server, UDP broadcast, inbound receive
+  Simulation.h/.cpp  Motion model, turn-rate limit, autopilot, emit cadence
+  main.cpp           Win32 dialog UI with colour-coded RichEdit log
+  app.rc             Dialog resource
 test/
-  verify.cpp       Encoder round-trip / checksum checks
-  netcheck.cpp     End-to-end TCP streaming smoke test
+  verify.cpp         Encoder/checksum/parser checks
+  netcheck.cpp       NMEA 0183 TCP streaming smoke test
+  n2kcheck.cpp       NMEA 2000 generation, validation, autopilot test
+  apcheck.cpp        NMEA 0183 autopilot steering test
+  turncheck.cpp      6 deg/s turn-rate test
 ```
 
 ## Tests
 
-Both test programs build from a VS x64 developer command prompt:
+From a VS x64 developer command prompt:
 
 ```powershell
-cl /EHsc /std:c++17 /I src test\verify.cpp   src\Ais.cpp src\Nmea.cpp
-cl /EHsc /std:c++17 /I src test\netcheck.cpp src\Simulation.cpp src\Ais.cpp src\Nmea.cpp src\Network.cpp
+cl /utf-8 /EHsc /std:c++17 /I src test\verify.cpp    src\Ais.cpp src\Nmea.cpp src\ApInput.cpp src\N2k.cpp
+cl /utf-8 /EHsc /std:c++17 /I src test\netcheck.cpp  src\Simulation.cpp src\Ais.cpp src\Nmea.cpp src\Network.cpp src\ApInput.cpp src\N2k.cpp
+cl /utf-8 /EHsc /std:c++17 /I src test\n2kcheck.cpp  src\N2k.cpp src\Simulation.cpp src\Ais.cpp src\Nmea.cpp src\Network.cpp src\ApInput.cpp
+cl /utf-8 /EHsc /std:c++17 /I src test\apcheck.cpp   src\Simulation.cpp src\Ais.cpp src\Nmea.cpp src\Network.cpp src\ApInput.cpp src\N2k.cpp
+cl /utf-8 /EHsc /std:c++17 /I src test\turncheck.cpp src\Simulation.cpp src\Ais.cpp src\Nmea.cpp src\Network.cpp src\ApInput.cpp src\N2k.cpp
 ```
 
-`verify.exe` decodes the generated AIS payloads back to their fields (MMSI,
-lat/lon, SOG, IMO, message type) and validates every checksum. `netcheck.exe`
-starts the server + simulation, connects a TCP client, and confirms a live
-stream of GGA/RMC/AIVDM sentences.
+`n2kcheck.exe` verifies Actisense N2K ASCII parsing, ownship and AIS PGN generation,
+autopilot PGN validation/decoding, and live steering from PGN 129284.

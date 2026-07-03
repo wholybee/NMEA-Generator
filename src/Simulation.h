@@ -3,6 +3,7 @@
 
 #include "Geo.h"
 #include "Ais.h"
+#include "Nmea.h"
 
 #include <string>
 #include <array>
@@ -10,10 +11,16 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <chrono>
 
 namespace nmea {
 
 constexpr int kNumTargets = 4;
+
+enum class ProtocolMode {
+    Nmea0183 = 0,
+    Nmea2000 = 1
+};
 
 // User-editable configuration for the ownship path.
 struct OwnshipConfig {
@@ -29,6 +36,7 @@ struct OwnshipConfig {
 struct TargetConfig {
     bool enabled = true;
     bool classA = true;
+    AisTargetKind kind = AisTargetKind::ClassA;
     Shape shape = Shape::Circle;
     double offsetX = 0.0;      // NM east offset of path centre
     double offsetY = 0.0;      // NM north offset of path centre
@@ -37,6 +45,7 @@ struct TargetConfig {
 
 // Full simulation configuration edited through the dialog.
 struct SimConfig {
+    ProtocolMode protocol = ProtocolMode::Nmea0183;
     OwnshipConfig ownship;
     std::array<TargetConfig, kNumTargets> targets;
 };
@@ -54,6 +63,18 @@ public:
     // Replace the live configuration (thread-safe).
     void SetConfig(const SimConfig& cfg);
 
+    // Feed an incoming NMEA 0183 sentence or Actisense N2K ASCII line.
+    // APB/RMB/XTE or their N2K PGN equivalents engage autopilot mode and steer
+    // ownship. Other sentences are ignored. Thread-safe.
+    void OnIncomingSentence(const std::string& line);
+
+    // True while the ownship is steering from received autopilot data rather
+    // than its predefined pattern.
+    bool AutopilotEngaged() const { return apEngaged_.load(); }
+
+    // Start a 2-minute AIS MOB burst at the current ownship position.
+    void TriggerMob();
+
     void Start();
     void Stop();
     bool Running() const { return running_.load(); }
@@ -63,18 +84,55 @@ private:
         double t = 0.0;          // path parameter (radians)
         double prevCog = 0.0;
         bool hasPrev = false;
+        double heading = 0.0;    // rate-limited actual heading (degrees true)
+        bool headingInit = false;
     };
 
     void Run();
     void StepOwnship(double dt, const std::tm& utc, bool emit);
     void StepTarget(int i, double dt, const std::tm& utc, bool emitDynamic, bool emitStatic);
+    void StepMob(const std::tm& utc, bool emit);
 
     Sink sink_;
     std::atomic<bool> running_{false};
     std::thread thread_;
 
+    // Autopilot command most recently decoded from incoming APB/RMB/XTE.
+    struct Autopilot {
+        bool hasBearing = false;
+        double bearing = 0.0;   // degrees true, heading to steer
+        bool hasDest = false;
+        double destLat = 0.0;
+        double destLon = 0.0;
+        double xteNm = 0.0;     // cross-track error magnitude
+        char steer = 0;         // 'L' or 'R' direction to steer
+        std::chrono::steady_clock::time_point lastUpdate;
+        bool everReceived = false;
+    };
+
     std::mutex cfgMutex_;
     SimConfig cfg_;
+
+    std::mutex apMutex_;
+    Autopilot ap_;
+    std::atomic<bool> apEngaged_{false};
+    // Integrated ownship position while autopilot is engaged (sim thread only).
+    double apLat_ = 0.0;
+    double apLon_ = 0.0;
+    bool apPosInit_ = false;
+
+    std::mutex ownStateMutex_;
+    OwnshipState lastOwnship_;
+    bool hasLastOwnship_ = false;
+
+    struct MobState {
+        bool active = false;
+        double lat = 0.0;
+        double lon = 0.0;
+        std::chrono::steady_clock::time_point until;
+    };
+    std::mutex mobMutex_;
+    MobState mob_;
 
     Entity ownship_;
     std::array<Entity, kNumTargets> targetEntities_;
@@ -84,6 +142,6 @@ private:
 };
 
 // Build a pseudo-random but stable static identity for target index 'i'.
-AisStatic MakeStaticIdentity(int i, bool classA);
+AisStatic MakeStaticIdentity(int i, AisTargetKind kind);
 
 } // namespace nmea

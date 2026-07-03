@@ -9,6 +9,10 @@
 
 namespace nmea {
 
+bool IsSarKind(AisTargetKind kind) {
+    return kind == AisTargetKind::SarFixedWing || kind == AisTargetKind::SarHelicopter;
+}
+
 void AppendUInt(std::string& bits, uint64_t value, int bits_n) {
     for (int i = bits_n - 1; i >= 0; --i) {
         bits.push_back(((value >> i) & 1ULL) ? '1' : '0');
@@ -118,7 +122,26 @@ std::string EncodePositionReport(const AisDynamic& d, char channel) {
     const int hdg = (d.heading >= 0.0 && d.heading < 360.0)
                         ? static_cast<int>(std::round(d.heading)) : 511;
 
-    if (d.classA) {
+    if (IsSarKind(d.kind)) {
+        const int altitude = std::clamp(d.altitudeMeters, 0, 4094);
+        AppendUInt(bits, 9, 6);              // message type 9: SAR aircraft
+        AppendUInt(bits, 0, 2);              // repeat indicator
+        AppendUInt(bits, d.mmsi, 30);        // MMSI
+        AppendUInt(bits, altitude, 12);      // altitude, metres
+        AppendUInt(bits, sog, 10);           // speed over ground
+        AppendUInt(bits, 0, 1);              // position accuracy
+        AppendInt(bits, EncodeLon(d.longitude), 28);
+        AppendInt(bits, EncodeLat(d.latitude), 27);
+        AppendUInt(bits, cog, 12);           // course over ground
+        AppendUInt(bits, d.timestamp, 6);    // UTC second
+        AppendUInt(bits, 0, 1);              // altitude sensor: GNSS
+        AppendUInt(bits, 0, 7);              // reserved
+        AppendUInt(bits, 0, 1);              // DTE
+        AppendUInt(bits, 0, 3);              // spare
+        AppendUInt(bits, 0, 1);              // assigned mode
+        AppendUInt(bits, 0, 1);              // RAIM
+        AppendUInt(bits, 0, 19);             // radio status
+    } else if (d.classA) {
         AppendUInt(bits, 1, 6);              // message type 1
         AppendUInt(bits, 0, 2);              // repeat indicator
         AppendUInt(bits, d.mmsi, 30);        // MMSI
@@ -157,6 +180,19 @@ std::string EncodePositionReport(const AisDynamic& d, char channel) {
         AppendUInt(bits, 0, 1);              // RAIM
         AppendUInt(bits, 0, 20);             // radio status
     }
+
+    int seq = 0;
+    auto sentences = WrapAivdm(bits, channel, seq);
+    return sentences.front();
+}
+
+std::string EncodeSafetyBroadcast(uint32_t mmsi, const std::string& text, char channel) {
+    std::string bits;
+    AppendUInt(bits, 14, 6);                 // safety-related broadcast
+    AppendUInt(bits, 0, 2);                  // repeat
+    AppendUInt(bits, mmsi, 30);              // source MMSI
+    AppendUInt(bits, 0, 2);                  // spare
+    AppendString(bits, text, static_cast<int>(std::min<size_t>(text.size(), 26)));
 
     int seq = 0;
     auto sentences = WrapAivdm(bits, channel, seq);

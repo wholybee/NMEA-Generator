@@ -32,4 +32,22 @@ std::string Frame(char start, const std::string& body);
 // MWD) for the given state and UTC time.
 std::vector<std::string> BuildOwnshipSentences(const OwnshipState& s, const std::tm& utc);
 
+// ---- Incoming sentence parsing -------------------------------------------
+
+// The 3-character sentence formatter (e.g. "APB", "RMB", "GGA") taken from the
+// address field, upper-cased. Empty if the line is not a valid sentence.
+std::string SentenceFormatter(const std::string& line);
+
+// Verify the "*hh" checksum if present. Returns true when the checksum matches
+// or when no checksum is present.
+bool VerifyChecksum(const std::string& line);
+
+// Split a sentence into comma-separated fields. Field 0 includes the leading
+// "$"/"!" + address; any trailing "*hh" and CR/LF are stripped first.
+std::vector<std::string> SplitFields(const std::string& line);
+
+// Parse a NMEA lat/lon field pair (ddmm.mmmm + hemisphere) to decimal degrees.
+// Returns false if the value field is empty/invalid.
+bool ParseLatLon(const std::string& value, const std::string& hemi, double& out);
+
 } // namespace nmea

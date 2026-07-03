@@ -95,4 +95,27 @@ inline double BearingDeg(double east, double north) {
     return deg;
 }
 
+// Bearing (degrees true) and distance (NM) from point 1 to point 2 using an
+// equirectangular approximation (accurate over the short ranges used here).
+inline void BearingDistanceLatLon(double lat1, double lon1,
+                                  double lat2, double lon2,
+                                  double& bearingDeg, double& distNm) {
+    const double cosLat = std::cos(lat1 * M_PI / 180.0);
+    const double north = (lat2 - lat1) * 60.0;
+    const double east = (lon2 - lon1) * 60.0 * cosLat;
+    bearingDeg = BearingDeg(east, north);
+    distNm = std::sqrt(north * north + east * east);
+}
+
+// Advance a latitude/longitude by distNm along a compass bearing (degrees true).
+inline void MoveLatLon(double lat, double lon, double bearingDeg, double distNm,
+                       double& outLat, double& outLon) {
+    const double br = bearingDeg * M_PI / 180.0;
+    const double north = distNm * std::cos(br);
+    const double east = distNm * std::sin(br);
+    outLat = lat + north / 60.0;
+    const double cosLat = std::cos(outLat * M_PI / 180.0);
+    outLon = lon + ((cosLat > 1e-6) ? (east / (60.0 * cosLat)) : 0.0);
+}
+
 } // namespace nmea

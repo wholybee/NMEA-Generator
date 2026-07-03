@@ -53,6 +53,7 @@
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
@@ -83,14 +84,18 @@
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Nmea.cpp" />
+    <ClCompile Include="src\N2k.cpp" />
     <ClCompile Include="src\Ais.cpp" />
+    <ClCompile Include="src\ApInput.cpp" />
     <ClCompile Include="src\Network.cpp" />
     <ClCompile Include="src\Simulation.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Geo.h" />
     <ClInclude Include="src\Nmea.h" />
+    <ClInclude Include="src\N2k.h" />
     <ClInclude Include="src\Ais.h" />
+    <ClInclude Include="src\ApInput.h" />
     <ClInclude Include="src\Network.h" />
     <ClInclude Include="src\Simulation.h" />
     <ClInclude Include="src\resource.h" />
